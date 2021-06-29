@@ -10,6 +10,7 @@ internal final class CommentsDataSource: ValueCellDataSource {
     case error
   }
 
+  // Appends
   internal func load(comments: [Comment], project: Project, shouldShowErrorState: Bool) {
     guard !shouldShowErrorState else {
       self.clearValues()
@@ -22,41 +23,11 @@ internal final class CommentsDataSource: ValueCellDataSource {
       return
     }
 
-    let section = !comments.isEmpty ? Section.comments.rawValue : Section.empty.rawValue
-    self.clearValues()
-
-    guard !comments.isEmpty else {
-      self.appendRow(
-        value: (),
-        cellClass: EmptyCommentsCell.self,
-        toSection: section
-      )
-
-      return
-    }
+    // Ensure empty cell is always cleared
+    self.clearValues(section: Section.empty.rawValue)
 
     comments.forEach { comment in
-      guard comment.isDeleted == false else {
-        self.appendRow(
-          value: comment,
-          cellClass: CommentRemovedCell.self,
-          toSection: section
-        )
-        return
-      }
-
-      switch comment.status {
-      case .failed, .retrying:
-        self.appendRow(
-          value: comment,
-          cellClass: CommentPostFailedCell.self,
-          toSection: section
-        )
-      case .success, .retrySuccess:
-        self.appendRow(value: (comment, project), cellClass: CommentCell.self, toSection: section)
-      case .unknown:
-        assertionFailure("Comments that have not had their state set should not be added to the data source.")
-      }
+      self.loadValue(comment, project: project)
     }
   }
 
@@ -89,5 +60,124 @@ internal final class CommentsDataSource: ValueCellDataSource {
 
   func isInErrorState(indexPath: IndexPath) -> Bool {
     return indexPath.section == Section.error.rawValue
+  }
+
+  internal func replace(comment: Comment, and project: Project, byCommentId id: String) -> (IndexPath?, Bool)? {
+    let section = Section.comments.rawValue
+    let values = self.items(in: section)
+
+    /// TODO: We may need to introduce optimizations here if this becomes problematic for projects that have
+    /// thousands of comments. Consider an accompanying `Set` to track membership or replacing entirely
+    /// with an `OrderedSet`.
+    let commentIndex = values.firstIndex { value in
+      let foundAsCommentCell = (value as? (value: (Comment, Project), reusableId: String))?.value.0.id == id
+      let foundAsOtherCell = (value as? (value: Comment, reusableId: String))?.value.id == id
+
+      return foundAsCommentCell || foundAsOtherCell
+    }
+
+    var indexPath: IndexPath?
+
+    // We found an existing comment, let's update the value at that IndexPath.
+    if let commentIndex = commentIndex {
+      indexPath = IndexPath(row: commentIndex, section: Section.comments.rawValue)
+      return (self.loadValue(comment, project: project, at: indexPath), false)
+    }
+
+    // If the comment we're replacing is not found, it's new, prepend it.
+    return (self.loadValue(comment, project: project, prepend: true), true)
+  }
+
+  @discardableResult
+  private func loadValue(
+    _ comment: Comment,
+    project: Project,
+    prepend: Bool = false,
+    at indexPath: IndexPath? = nil
+  ) -> IndexPath? {
+    let section = Section.comments.rawValue
+
+    // Removed
+    guard comment.isDeleted == false else {
+      if let indexPath = indexPath {
+        self.set(
+          value: comment,
+          cellClass: CommentRemovedCell.self,
+          inSection: indexPath.section,
+          row: indexPath.row
+        )
+
+        return indexPath
+      }
+      else if prepend {
+        return self.insertRow(
+          value: comment,
+          cellClass: CommentRemovedCell.self,
+          atIndex: 0,
+          inSection: section
+        )
+      }
+
+      return self.appendRow(
+        value: comment,
+        cellClass: CommentRemovedCell.self,
+        toSection: section
+      )
+    }
+
+    // Failed and retrying
+    switch comment.status {
+    case .failed, .retrying:
+      if let indexPath = indexPath {
+        self.set(
+          value: comment,
+          cellClass: CommentPostFailedCell.self,
+          inSection: indexPath.section,
+          row: indexPath.row
+        )
+
+        return indexPath
+      }
+      else if prepend {
+        return self.insertRow(
+          value: comment,
+          cellClass: CommentPostFailedCell.self,
+          atIndex: 0,
+          inSection: section
+        )
+      }
+
+      return self.appendRow(
+        value: comment,
+        cellClass: CommentPostFailedCell.self,
+        toSection: section
+      )
+    // Retry success and success
+    case .success, .retrySuccess:
+      if let indexPath = indexPath {
+        self.set(
+          value: (comment, project),
+          cellClass: CommentCell.self,
+          inSection: indexPath.section,
+          row: indexPath.row
+        )
+
+        return indexPath
+      }
+      else if prepend {
+        return self.insertRow(
+          value: (comment, project),
+          cellClass: CommentCell.self,
+          atIndex: 0,
+          inSection: section
+        )
+      }
+
+      return self.appendRow(value: (comment, project), cellClass: CommentCell.self, toSection: section)
+    case .unknown:
+      assertionFailure("Comments that have not had their state set should not be added to the data source.")
+    }
+
+    return nil
   }
 }

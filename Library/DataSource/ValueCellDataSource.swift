@@ -364,4 +364,8 @@ open class ValueCellDataSource: NSObject, UICollectionViewDataSource, UITableVie
       self.values.append([])
     }
   }
+
+  public func items(in section: Int) -> [(value: Any, reusableId: String)] {
+    return self.values[section]
+  }
 }

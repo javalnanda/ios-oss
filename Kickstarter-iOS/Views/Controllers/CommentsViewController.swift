@@ -135,6 +135,22 @@ internal final class CommentsViewController: UITableViewController {
         self?.tableView.reloadData()
       }
 
+    self.viewModel.outputs.replaceCommentById
+      .observeForUI()
+      .observeValues { [weak self] comment, project, id in
+        self?.tableView.beginUpdates()
+        if let (indexPath, insert) = self?.dataSource.replace(comment: comment, and: project, byCommentId: id) {
+          if let indexPath = indexPath {
+            if insert {
+              self?.tableView.insertRows(at: [indexPath], with: .fade)
+            } else {
+              self?.tableView.reloadRows(at: [indexPath], with: .fade)
+            }
+          }
+        }
+        self?.tableView.endUpdates()
+      }
+
     self.viewModel.outputs.goToRepliesWithCommentProjectAndBecomeFirstResponder
       .observeForControllerAction()
       .observeValues { [weak self] comment, project, becomeFirstResponder in

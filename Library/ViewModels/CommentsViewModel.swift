@@ -60,6 +60,8 @@ public protocol CommentsViewModelOutputs {
   /// Emits a HelpType to use when presenting a HelpWebViewController.
   var showHelpWebViewController: Signal<HelpType, Never> { get }
 
+  var replaceCommentById: Signal<(Comment, Project, String), Never> { get }
+
   /// Emits when a comment has been posted and we should scroll to top and reset the composer.
   var resetCommentComposerAndScrollToTop: Signal<(), Never> { get }
 }
@@ -123,7 +125,7 @@ public final class CommentsViewModel: CommentsViewModelType,
       .filter(isTrue)
       .ignoreValues()
 
-    let currentComments = self.currentComments.signal.skipNil()
+//    let currentComments = self.currentComments.signal.skipNil()
 
     let tappedToRetry = self.commentTableViewFooterViewDidTapRetryProperty.signal
     // Retry the next page if we've paged before at least once and tapped to retry.
@@ -165,65 +167,65 @@ public final class CommentsViewModel: CommentsViewModelType,
       // only return new pages, we'll concat them ourselves
       concater: { _, value in value }
     )
-    let commentsWithRetryingComment = currentComments
-      .takePairWhen(self.retryingComment.signal.skipNil())
-      .map(unpack)
-      .map(commentsReplacingCommentById)
-
-    let commentsWithFailableOrComment = currentComments
-      .takePairWhen(self.failableOrComment.signal.skipNil())
-      .map(unpack)
-      .map(commentsReplacingCommentById)
+//    let commentsWithRetryingComment = currentComments
+//      .takePairWhen(self.retryingComment.signal.skipNil())
+//      .map(unpack)
+//      .map(commentsReplacingCommentById)
+//
+//    let commentsWithFailableOrComment = currentComments
+//      .takePairWhen(self.failableOrComment.signal.skipNil())
+//      .map(unpack)
+//      .map(commentsReplacingCommentById)
     self.resetCommentComposerAndScrollToTop = self.commentComposerDidSubmitTextProperty.signal.skipNil()
       .ignoreValues()
-
-    let paginatedComments = Signal.merge(
-      // Pull to refresh, clear comments cache.
-      pullToRefresh.mapConst(([], true)),
-      // Regular paged comments, don't clear accumulator.
-      comments.map { comments in (comments, false) },
-      // Comments with a retrying comment, replace our current comments cache with this.
-      commentsWithRetryingComment.map { comments in (comments, true) },
-      // Comments with a failable or new comment, replace our current comments cache with this.
-      commentsWithFailableOrComment.map { comments in (comments, true) }
-    )
-    .scan([]) { accum, value -> [Comment] in
-      let (comments, clear) = value
-      guard clear == false else { return comments }
-      return accum + comments
-    }
+//
+//    let paginatedComments = Signal.merge(
+//      // Pull to refresh, clear comments cache.
+//      pullToRefresh.mapConst(([], true)),
+//      // Regular paged comments, don't clear accumulator.
+//      comments.map { comments in (comments, false) },
+//      // Comments with a retrying comment, replace our current comments cache with this.
+//      commentsWithRetryingComment.map { comments in (comments, true) },
+//      // Comments with a failable or new comment, replace our current comments cache with this.
+//      commentsWithFailableOrComment.map { comments in (comments, true) }
+//    )
+//    .scan([]) { accum, value -> [Comment] in
+//      let (comments, clear) = value
+//      guard clear == false else { return comments }
+//      return accum + comments
+//    }
 
     let commentsAndProject = Signal.combineLatest(
-      paginatedComments,
+      comments,
       initialProject
     )
+//
+//    self.currentComments <~ commentsAndProject.map(first)
+//      // Thread hop so that we don't circularly buffer.
+//      .ksr_debounce(.nanoseconds(0), on: AppEnvironment.current.scheduler)
+//
+//    // Allow empty arrays from the first emission.
+//    let emptyCommentsWithInitialProject = Signal.zip(comments, initialProject)
+//      .filter { comments, _ in comments.isEmpty }
+//      .map { comments, project in (comments, project, false) }
+//
+//    // Continue to paginate normally without empty comments.
+//    let paginatedCommentsAndProject = commentsAndProject
+//      .filter { comments, _ in comments.isEmpty == false }
+//      .map { comments, project in (comments, project, false) }
+//
+//    // If there are errors emit empty comments array, project and error boolean.
+//    let errorsAndHasRequestedNextPage: Signal<([Comment], Project, Bool), Never> = Signal
+//      .combineLatest(errors, hasRequestedNextPage)
+//      .filter(second >>> isFalse)
+//      .map(first)
+//      .withLatestFrom(initialProject).map { ([], $1, true) }
 
-    self.currentComments <~ commentsAndProject.map(first)
-      // Thread hop so that we don't circularly buffer.
-      .ksr_debounce(.nanoseconds(0), on: AppEnvironment.current.scheduler)
-
-    // Allow empty arrays from the first emission.
-    let emptyCommentsWithInitialProject = Signal.zip(comments, initialProject)
-      .filter { comments, _ in comments.isEmpty }
-      .map { comments, project in (comments, project, false) }
-
-    // Continue to paginate normally without empty comments.
-    let paginatedCommentsAndProject = commentsAndProject
-      .filter { comments, _ in comments.isEmpty == false }
-      .map { comments, project in (comments, project, false) }
-
-    // If there are errors emit empty comments array, project and error boolean.
-    let errorsAndHasRequestedNextPage: Signal<([Comment], Project, Bool), Never> = Signal
-      .combineLatest(errors, hasRequestedNextPage)
-      .filter(second >>> isFalse)
-      .map(first)
-      .withLatestFrom(initialProject).map { ([], $1, true) }
-
-    self.loadCommentsAndProjectIntoDataSource = Signal.merge(
-      emptyCommentsWithInitialProject,
-      paginatedCommentsAndProject,
-      errorsAndHasRequestedNextPage
+    self.loadCommentsAndProjectIntoDataSource = Signal.combineLatest(
+      comments,
+      initialProject
     )
+    .map { ($0.0, $0.1, false) }
 
     self.beginOrEndRefreshing = isLoading
     self.cellSeparatorHidden = commentsAndProject.map(first).map { $0.count == .zero }
@@ -271,7 +273,7 @@ public final class CommentsViewModel: CommentsViewModelType,
         (project: project, commentableId: commentableId, user: user)
       }
 
-    self.failableOrComment <~ postFailableCommentConfigData
+    let failableOrComment = postFailableCommentConfigData
       .takePairWhen(commentComposerDidSubmitText)
       .map { data in
         let ((project, commentableId, user), text) = data
@@ -289,7 +291,7 @@ public final class CommentsViewModel: CommentsViewModelType,
         currentlyRetrying.value.insert(comment.id)
       })
 
-    self.retryingComment <~ commentableId
+    let retryingComment = commentableId
       .takePairWhen(newErroredCommentTapped)
       .map { commentableId, comment in
         (comment, commentableId)
@@ -299,6 +301,7 @@ public final class CommentsViewModel: CommentsViewModelType,
       .on(value: { [currentlyRetrying] _, id in
         currentlyRetrying.value.remove(id)
       })
+
     let footerViewActivityState = Signal
       .combineLatest(isCloseToBottom, isLoading)
       .filter(second >>> isTrue)
@@ -307,6 +310,14 @@ public final class CommentsViewModel: CommentsViewModelType,
       projectOrUpdate.ignoreValues(),
       self.loadCommentsAndProjectIntoDataSource.ignoreValues()
     )
+
+    self.replaceCommentById = initialProject.takePairWhen(
+      Signal.merge(
+        retryingComment,
+        failableOrComment
+      )
+    )
+    .map { ($1.0, $0, $1.1) }
 
     // Footer view would be hidden if there is an error at
     // initial loading stage or when comments are refreshed
@@ -337,9 +348,9 @@ public final class CommentsViewModel: CommentsViewModelType,
   }
 
   // Properties to assist with injecting these values into the existing data streams.
-  private let currentComments = MutableProperty<[Comment]?>(nil)
-  private let retryingComment = MutableProperty<(Comment, String)?>(nil)
-  private let failableOrComment = MutableProperty<(Comment, String)?>(nil)
+//  private let currentComments = MutableProperty<[Comment]?>(nil)
+//  private let retryingComment = MutableProperty<(Comment, String)?>(nil)
+//  private let failableOrComment = MutableProperty<(Comment, String)?>(nil)
 
   private let commentCellDidTapViewRepliesProperty = MutableProperty<Comment?>(nil)
   public func commentCellDidTapViewReplies(_ comment: Comment) {
@@ -398,6 +409,7 @@ public final class CommentsViewModel: CommentsViewModelType,
   public let goToRepliesWithCommentProjectAndBecomeFirstResponder: Signal<(Comment, Project, Bool), Never>
   public let loadCommentsAndProjectIntoDataSource: Signal<([Comment], Project, Bool), Never>
   public let showHelpWebViewController: Signal<HelpType, Never>
+  public let replaceCommentById: Signal<(Comment, Project, String), Never>
   public let resetCommentComposerAndScrollToTop: Signal<(), Never>
 
   public var inputs: CommentsViewModelInputs { return self }
